@@ -97,7 +97,7 @@ export default function DailyEntryPage() {
 
   // Accordion Workflow state (Sections 15-18: All sections CLOSED initially)
   const [openSections, setOpenSections] = useState({
-    meters: false,
+    meters: true,
     groups: false,
     creditPayments: false,
     deposits: false,
@@ -1240,6 +1240,10 @@ export default function DailyEntryPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
               <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
                 Enter <strong>Closing Reading</strong> only. Opening readings pull automatically from the previous day. Litres &amp; sales calculate immediately.
+                <div className="test-hint">
+                  <Icon name="flask" className="icon-sm" />
+                  <span><strong>Nozzle testing:</strong> tap <span className="test-chip" aria-hidden="true" style={{ height: 22, cursor: 'default' }}><Icon name="flask" className="icon-sm" />Test</span> on a nozzle row to add test litres (returned to tank or sample/loss). Test litres are not counted as sales.</span>
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>

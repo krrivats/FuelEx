@@ -1148,3 +1148,6 @@ button .icon, .btn .icon, .chip .icon, .nav-item .icon, .kpi-label .icon, .badge
   .daily-entry-sticky-bar { padding: 6px 8px; gap: 6px; }
   .daily-entry-sticky-bar .btn { min-height: 40px; height: 40px; }
 }
+.test-hint { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-md); background: var(--color-accent-subtle); color: var(--text-primary); font-size: 12.5px; line-height: 1.6; }
+.test-hint > .icon { color: var(--color-accent); margin-top: 3px; }
+.test-hint .test-chip { vertical-align: middle; margin: 0 2px; }
