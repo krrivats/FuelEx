@@ -11,6 +11,11 @@ Runs fully in the browser. Data is stored in the device's localStorage; use
 - `npm test` – business-rule tests (meter sales, price history, inventory, top-ups, cash,
   reconciliation, Udhaar, opening stock, cash count, backup/restore, delete guards)
 
+## Publish to the live site
+`npm run build && npm run publish` copies the build to the repo root (`app.js`, `app.css`,
+`index.html`, `404.html`, `sw.js`). The script/style links get a `?v=<hash>`, so phones load
+the new version right away instead of a cached copy.
+
 ## GitHub Pages
 `vite.config.js` uses `base: './'`, so the build works under any repo name.
 Either upload the contents of `dist/`, or push the source and use the workflow in
