@@ -241,213 +241,234 @@ export default function DashboardPage() {
 
   const entryPath = activeEntry ? `/operations/daily-entry/${activeEntry.date}` : '/operations/daily-entry';
   const signed = (n) => `${n > 0 ? '+' : ''}${INR(n)}`;
+  const hasToday = Boolean(activeEntry?.isToday);
+  const testLitres = Number(activeEntry?.totalTestLitres || 0);
+
+  // Product colour: petrol cyan, diesel blue, speed green, others muted
+  const toneOf = (name = '') => {
+    const n = name.toLowerCase();
+    if (n.includes('speed') || n.includes('power')) return 'var(--color-success)';
+    if (n.includes('diesel') || n.includes('hsd')) return 'var(--color-primary)';
+    if (n.includes('petrol') || n.includes('ms')) return 'var(--color-accent)';
+    return 'var(--text-muted)';
+  };
+  const dispensed = stockSummaries.map(t => ({ id: t.productId, name: t.productName, litres: Number(t.salesToday || 0), tone: toneOf(t.productName) }));
+  const dispensedTotal = dispensed.reduce((sum, d) => sum + d.litres, 0);
+
+  // Day status banner
+  const dayOk = activeEntry && activeStats.reconciled && (!cashRecon.hasCount || cashRecon.isMatched);
+  const bannerTone = !activeEntry ? 'var(--color-primary)' : dayOk ? 'var(--color-success)' : 'var(--color-warning)';
+  const bannerTitle = !activeEntry ? 'No day entered yet' : dayOk ? 'Day balanced' : 'Needs a check';
+  const bannerText = !activeEntry
+    ? 'Start today’s entry: meters, collections and cash.'
+    : `${activeStats.reconciled ? 'Meter sales match collections + udhaar' : `Sales diff ${INR(activeStats.difference)}`} · ${cashRecon.hasCount ? (cashRecon.isMatched ? 'cash count matched' : `cash diff ${signed(cashRecon.diff)}`) : 'cash not counted yet'}`;
+  const variancePct = activeStats.salesValue > 0 ? Math.abs(activeStats.difference / activeStats.salesValue) * 100 : 0;
+  const dayLabel = new Date(`${activeDate}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  const alertTone = (type) => (type === 'danger' ? 'var(--color-danger)' : 'var(--color-warning)');
 
   return (
-    <div>
-      {/* Header: title, active shift, status, actions */}
-      <div className="page-header">
-        <div className="page-header-info">
-          <h1>Business position</h1>
-          <div className="status-line" style={{ marginTop: 4 }}>
-            <span className="chip mono">{activeDate}</span>
-            {activeEntry && !activeEntry.isToday && <span className="chip warn">Latest recorded day</span>}
-            <span className={`chip ${activeStats.reconciled ? 'ok' : 'bad'}`}>
-              <Icon name={activeStats.reconciled ? 'check' : 'alert'} />
-              {activeStats.reconciled ? 'Sales balanced' : `Sales diff ${INR(activeStats.difference)}`}
-            </span>
-            {cashRecon.hasCount ? (
-              <span className={`chip ${cashRecon.isMatched ? 'ok' : 'bad'}`}>
-                <Icon name={cashRecon.isMatched ? 'check' : 'alert'} />
-                {cashRecon.isMatched ? 'Cash matched' : `Cash diff ${signed(cashRecon.diff)}`}
-              </span>
-            ) : (
-              <span className="chip">Cash not counted</span>
-            )}
-          </div>
+    <div className="dx">
+      {/* Context bar: day + quick lock */}
+      <div className="dx-card dx-context">
+        <div style={{ minWidth: 0 }}>
+          <div className="dx-context-title"><span className="dot" /><span className="truncate">{hasToday ? 'Today' : activeEntry ? 'Latest recorded day' : 'Today'}</span></div>
+          <div className="dx-context-sub">{activeEntry ? `${activeEntry.status === 'completed' ? 'Completed' : 'Draft'} · ${activeDate}` : `No entry · ${activeDate}`}</div>
         </div>
-        <div className="page-header-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/cash-count')}>
-            <Icon name="cash" /> Cash count
+        <div className="dx-context-actions">
+          <button type="button" className="dx-icon-btn" onClick={() => navigate('/operations/entries')} aria-label="All daily entries">
+            <Icon name="list" /> {dayLabel}
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/inventory')}>
-            <Icon name="fuel" /> Tanks &amp; stock
-          </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/reports')}>
-            <Icon name="file" /> DSR report
-          </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/operations/daily-entry/${todayDate}`)}>
-            <Icon name="edit" /> Open today&apos;s entry
+          <button type="button" className="dx-icon-btn" onClick={() => navigate('/reports')} aria-label="DSR report">
+            <Icon name="file" />
           </button>
         </div>
       </div>
 
-      {/* 1. What needs attention */}
-      {allAlerts.length > 0 ? (
-        <div className="attention-list" role="list">
-          {allAlerts.map((alert, idx) => (
-            <div key={idx} role="listitem" className={`attention-item ${alert.type}`}>
-              <div className="attention-body">
-                <Icon name="alert" />
-                <div className="attention-text">
-                  <b>{alert.title}</b>
-                  <span>{alert.message}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                className={`btn btn-sm ${alert.type === 'danger' ? 'btn-danger' : 'btn-secondary'}`}
-                onClick={() => navigate(alert.action)}
-              >
-                {alert.actionLabel}
-              </button>
-            </div>
-          ))}
+      {/* Day status banner */}
+      <div className="dx-banner" style={{ '--tone': bannerTone }}>
+        <span className="dx-tile"><Icon name={dayOk ? 'check' : activeEntry ? 'alert' : 'info'} /></span>
+        <div style={{ minWidth: 0 }}>
+          <div className="dx-banner-title">
+            {bannerTitle}
+            {activeEntry && <span className="dx-pill">{variancePct.toFixed(2)}% VAR</span>}
+          </div>
+          <p>{bannerText}</p>
         </div>
-      ) : (
-        <div className="all-clear">
-          <Icon name="check" />
-          <span><b>All clear.</b> Tanks within capacity, sales balanced, credit limits respected.</span>
-        </div>
-      )}
+      </div>
 
-      {/* 2. Today at a glance — primary metric first, then supporting figures */}
-      <div className="kpi-board" style={{ marginBottom: 12 }}>
-        <button type="button" className="kpi-cell primary" onClick={() => navigate(entryPath)}>
-          <span className="kpi-label"><Icon name="fuel" /> Total sales</span>
-          <span className="kpi-value" style={{ color: 'var(--color-primary)' }}>{INR(activeStats.salesValue)}</span>
-          <span className="kpi-sub">Volume <strong>{FMT_QTY(activeStats.litres)}</strong></span>
+      {/* Main action */}
+      <button type="button" className="dx-cta" onClick={() => navigate(`/operations/daily-entry/${todayDate}`)}>
+        <Icon name={hasToday ? 'edit' : 'plus'} />
+        <span>{hasToday ? 'Continue today’s entry' : 'Start today’s daily entry'}</span>
+        <Icon name="chevron" />
+      </button>
+
+      {/* KPI 2×2 (4 across on desktop) */}
+      <div className="dx-kpis">
+        <button type="button" className="dx-card dx-kpi" onClick={() => navigate(entryPath)}>
+          <span className="dx-kpi-head">Total sales <Icon name="fuel" className="text-primary" /></span>
+          <span className="dx-kpi-value">{INR_ROUND(activeStats.salesValue)}</span>
+          <span className="dx-kpi-sub">{Number(activeStats.litres).toLocaleString('en-IN', { maximumFractionDigits: 0 })} L sold{testLitres > 0 && <> · {Number(testLitres).toLocaleString('en-IN', { maximumFractionDigits: 1 })} L test</>}</span>
         </button>
-        <button type="button" className="kpi-cell" onClick={() => navigate('/operations/collections')}>
-          <span className="kpi-label"><Icon name="card" /> Collected</span>
-          <span className="kpi-value">{INR(activeStats.collected)}</span>
-          <span className="kpi-sub">Cash, UPI QR &amp; cards</span>
+        <button type="button" className="dx-card dx-kpi" onClick={() => navigate('/operations/collections')}>
+          <span className="dx-kpi-head">Collected <Icon name="card" className="text-success" /></span>
+          <span className="dx-kpi-value text-success">{INR_ROUND(activeStats.collected)}</span>
+          <span className="dx-kpi-sub">Cash, UPI &amp; card</span>
         </button>
-        <button type="button" className="kpi-cell" onClick={() => navigate('/finance')}>
-          <span className="kpi-label"><Icon name="cash" /> Expected cash</span>
-          <span className="kpi-value" style={{ color: 'var(--color-success)' }}>{INR(activeStats.cashRemaining)}</span>
-          <span className="kpi-sub">After deposits &amp; expenses</span>
-        </button>
-        <button
-          type="button"
-          className={`kpi-cell ${cashRecon.hasCount ? (cashRecon.isMatched ? 'is-ok' : 'is-bad') : ''}`}
-          onClick={() => navigate('/cash-count')}
-        >
-          <span className="kpi-label"><Icon name="cash" /> Physical cash</span>
-          <span className="kpi-value">{cashRecon.hasCount ? INR(cashRecon.counted) : '₹0.00'}</span>
-          <span className="kpi-sub">
-            {cashRecon.hasCount ? (
-              <strong className={cashRecon.isMatched ? 'text-success' : 'text-danger'}>
-                {cashRecon.isMatched ? 'Exact match' : `Diff ${signed(cashRecon.diff)}`}
-              </strong>
-            ) : (
-              <strong className="text-primary">Count notes</strong>
-            )}
+        <button type="button" className="dx-card dx-kpi" onClick={() => navigate('/cash-count')}>
+          <span className="dx-kpi-head">Physical cash <Icon name="cash" className="text-accent" /></span>
+          <span className="dx-kpi-value">{cashRecon.hasCount ? INR_ROUND(cashRecon.counted) : '—'}</span>
+          <span className="dx-kpi-sub">
+            {cashRecon.hasCount
+              ? <strong className={cashRecon.isMatched ? 'text-success' : 'text-danger'}>{cashRecon.isMatched ? 'Exact match' : `Diff ${signed(cashRecon.diff)}`}</strong>
+              : <>Expected {INR_ROUND(activeStats.cashRemaining)}</>}
           </span>
         </button>
-        <button type="button" className="kpi-cell" onClick={() => navigate('/crm')}>
-          <span className="kpi-label"><Icon name="users" /> Today&apos;s udhaar</span>
-          <span className="kpi-value" style={{ color: 'var(--color-warning)' }}>{INR(activeStats.udhaar)}</span>
-          <span className="kpi-sub">Total balances <strong>{INR_ROUND(customerStats.totalOutstanding)}</strong></span>
-        </button>
-        <button type="button" className="kpi-cell" onClick={() => navigate('/inventory')}>
-          <span className="kpi-label"><Icon name="fuel" /> Fuel in tanks</span>
-          <span className="kpi-value" style={{ color: 'var(--color-accent)' }}>{fuelTotals.totalStockKL} KL</span>
-          <span className="kpi-sub">of {fuelTotals.totalCapacityKL} KL · <strong>{fuelTotals.avgUtil}%</strong></span>
+        <button type="button" className="dx-card dx-kpi" onClick={() => navigate('/crm')}>
+          <span className="dx-kpi-head">Udhaar / credit <Icon name="users" className="text-danger" /></span>
+          <span className="dx-kpi-value text-danger">{INR_ROUND(activeStats.udhaar)}</span>
+          <span className="dx-kpi-sub">Total due {INR_ROUND(customerStats.totalOutstanding)}</span>
         </button>
       </div>
 
-      {/* 3. Tanks + people */}
-      <div className="cmd-layout" style={{ marginBottom: 12 }}>
-        <section className="panel-flush" aria-label="Underground tanks">
-          <div className="panel-head">
-            <h2><Icon name="fuel" /> Underground tanks</h2>
-            <Link to="/inventory" className="panel-link">Manage tanks &amp; top-ups</Link>
-          </div>
-          {stockSummaries.map((tank, idx) => {
-            const isLow = tank.isLowStock;
-            const isOver = tank.isOverCapacity;
-            const barState = isOver ? 'bad' : isLow ? 'warn' : '';
-            return (
-              <button
-                type="button"
-                key={tank.productId || `tank-${idx}`}
-                className="tank-row"
-                onClick={() => navigate('/inventory')}
-              >
-                <div>
-                  <div className="tank-name">{tank.productName}</div>
-                  <div className="tank-sub">Capacity {tank.capacityKL} KL</div>
-                </div>
-                <div>
-                  <div className="tank-stock">{tank.closingBookStockKL} KL</div>
-                  <div className="tank-sub">{FMT_QTY(tank.closingBookStock)}</div>
-                </div>
-                <div>
-                  <div className="tank-sub" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Utilization</span>
-                    <strong style={{ color: isOver ? 'var(--color-danger)' : 'var(--text-primary)' }}>{tank.utilizationPercent}%</strong>
-                  </div>
-                  <div className={`tank-bar ${barState}`}><i style={{ width: `${Math.min(100, tank.utilizationPercent)}%` }} /></div>
-                </div>
-                <div className="tank-meta">
-                  <span>Top-up <strong>{tank.topUpsTodayKL > 0 ? `+${tank.topUpsTodayKL} KL` : '0 KL'}</strong></span>
-                  <span>Sales <strong style={{ color: 'var(--color-primary)' }}>{tank.salesTodayKL > 0 ? `-${tank.salesTodayKL} KL` : '0 KL'}</strong></span>
-                  {tank.hasDip && (
-                    <span>
-                      Dip <strong>{FMT_QTY(tank.physicalDip)}</strong> ·{' '}
-                      <strong style={{ color: tank.variation >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                        {tank.variation >= 0 ? `+${tank.variation}` : tank.variation} L
-                      </strong>
-                    </span>
-                  )}
-                </div>
-                {isOver ? (
-                  <span className="badge badge-danger"><Icon name="alert" className="icon-sm" /> {tank.overCapacityPercent}% over</span>
-                ) : isLow ? (
-                  <span className="badge badge-warning"><Icon name="alert" className="icon-sm" /> Low stock</span>
-                ) : (
-                  <span className="badge badge-success badge-dot">Healthy</span>
-                )}
-              </button>
-            );
-          })}
-        </section>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <section className="panel-flush" aria-label="Customer credit">
-            <div className="panel-head">
-              <h2><Icon name="users" /> Customer credit</h2>
-              <button type="button" className="panel-link" onClick={() => navigate('/crm')}>Open CRM</button>
+      <div className="dx-cols">
+        <div className="dx-stack">
+          {/* Alerts */}
+          <section aria-label="Alerts">
+            <div className="dx-head" style={{ padding: '0 4px' }}>
+              <h2>Active alerts {allAlerts.length > 0 && <span className="dx-count">{allAlerts.length}</span>}</h2>
             </div>
-            <div className="stat-trio">
-              <div><div className="stat-k">Registered</div><div className="stat-v">{customers.length}</div></div>
-              <div><div className="stat-k">Receivables</div><div className="stat-v" style={{ color: 'var(--color-warning)' }}>{INR_ROUND(customerStats.totalOutstanding)}</div></div>
-              <div><div className="stat-k">Over limit</div><div className="stat-v" style={{ color: customerStats.overLimitCount > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{customerStats.overLimitCount}</div></div>
+            {allAlerts.length > 0 ? (
+              <div className="dx-alerts" role="list">
+                {allAlerts.map((alert, idx) => (
+                  <button type="button" role="listitem" key={idx} className="dx-alert" style={{ '--tone': alertTone(alert.type) }} onClick={() => navigate(alert.action)}>
+                    <span className="dx-tile"><Icon name="alert" /></span>
+                    <span style={{ minWidth: 0 }}>
+                      <span className="dx-alert-title" style={{ display: 'block' }}>{alert.title}</span>
+                      <span className="dx-alert-msg" style={{ display: 'block' }}>{alert.message}</span>
+                    </span>
+                    <span className="dx-alert-go">{alert.actionLabel}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="dx-clear"><Icon name="check" /><span><b>All clear.</b> Tanks fine, sales balanced, credit limits respected.</span></div>
+            )}
+          </section>
+
+          {/* Tanks */}
+          <section className="dx-card" aria-label="Underground tanks" style={{ padding: 14 }}>
+            <div className="dx-head">
+              <div>
+                <h2>Underground tanks</h2>
+                <p>Book stock · {fuelTotals.totalStockKL} of {fuelTotals.totalCapacityKL} KL</p>
+              </div>
+              <Link to="/inventory" className="dx-link">Manage</Link>
+            </div>
+            <div className="dx-tanks">
+              {stockSummaries.map((tank, idx) => {
+                const tone = tank.isOverCapacity || tank.isLowStock ? 'var(--color-danger)' : toneOf(tank.productName);
+                return (
+                  <button type="button" key={tank.productId || `tank-${idx}`} className="dx-tank" style={{ '--tone': tone }} onClick={() => navigate('/inventory')}>
+                    <span className="dx-tank-top">
+                      <span className="dx-tank-name">
+                        <span className="truncate">{tank.productName}</span>
+                        <span className={`dx-pill ${tank.isLowStock || tank.isOverCapacity ? 'text-danger' : ''}`}>
+                          {tank.utilizationPercent}%{tank.isLowStock ? ' LOW' : tank.isOverCapacity ? ' OVER' : ''}
+                        </span>
+                      </span>
+                      <span className="dx-tank-vol" style={{ color: tank.isLowStock || tank.isOverCapacity ? 'var(--color-danger)' : undefined }}>
+                        {Math.round(tank.closingBookStock).toLocaleString('en-IN')} / {Math.round(tank.capacityLitres).toLocaleString('en-IN')} L
+                      </span>
+                    </span>
+                    <span className="dx-bar"><i style={{ width: `${Math.min(100, Math.max(0, tank.utilizationPercent))}%` }} /></span>
+                    <span className="dx-tank-foot">
+                      <span>{tank.topUpsTodayKL > 0 ? `Top-up +${tank.topUpsTodayKL} KL` : `Sold ${FMT_QTY(tank.salesToday)}`}</span>
+                      <span>
+                        {tank.hasDip
+                          ? <>Dip {tank.variation >= 0 ? '+' : ''}{tank.variation} L</>
+                          : `Ullage ${Math.max(0, Math.round(tank.capacityLitres - tank.closingBookStock)).toLocaleString('en-IN')} L`}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        <div className="dx-stack">
+          {/* Fuel dispensed */}
+          <section className="dx-card" aria-label="Fuel sold" style={{ padding: 14 }}>
+            <div className="dx-head">
+              <h2>Fuel sold</h2>
+              <span className="dx-kpi-sub">{FMT_QTY(dispensedTotal)} total</span>
+            </div>
+            <div className="dx-seg" aria-hidden="true">
+              {dispensedTotal > 0
+                ? dispensed.filter(d => d.litres > 0).map(d => <i key={d.id} style={{ width: `${(d.litres / dispensedTotal) * 100}%`, background: d.tone }} />)
+                : <i style={{ width: '100%', background: 'transparent' }} />}
+            </div>
+            <div className="dx-mix">
+              {dispensed.map(d => (
+                <div key={d.id}>
+                  <div className="dx-mix-k"><i style={{ background: d.tone }} /> <span className="truncate">{d.name}</span></div>
+                  <div className="dx-mix-v">{FMT_QTY(d.litres)}</div>
+                  <div className="dx-mix-s" style={{ color: d.tone }}>{dispensedTotal > 0 ? Math.round((d.litres / dispensedTotal) * 100) : 0}% share</div>
+                </div>
+              ))}
+              {testLitres > 0 && (
+                <div>
+                  <div className="dx-mix-k"><Icon name="flask" className="icon-sm" /> Testing</div>
+                  <div className="dx-mix-v">{FMT_QTY(testLitres)}</div>
+                  <div className="dx-mix-s text-muted">Not sold</div>
+                </div>
+              )}
             </div>
           </section>
 
-          <section className="panel-flush" aria-label="Staff and payroll">
-            <div className="panel-head">
-              <h2><Icon name="users" /> Staff &amp; payroll</h2>
-              <button type="button" className="panel-link" onClick={() => navigate('/crm')}>View payroll</button>
+          {/* Customer credit */}
+          <section className="dx-card" aria-label="Customer credit" style={{ padding: 14 }}>
+            <div className="dx-head">
+              <h2><Icon name="users" className="text-primary" /> Customer credit</h2>
+              <button type="button" className="dx-link" onClick={() => navigate('/crm')}>View ledger</button>
             </div>
-            <div className="stat-trio">
-              <div><div className="stat-k">Active staff</div><div className="stat-v">{employeeStats.activeEmployees}</div></div>
-              <div><div className="stat-k">Salary due</div><div className="stat-v" style={{ color: employeeStats.totalSalaryDue > 0 ? 'var(--color-primary)' : 'var(--color-success)' }}>{INR_ROUND(employeeStats.totalSalaryDue)}</div></div>
-              <div><div className="stat-k">Advances due</div><div className="stat-v" style={{ color: employeeStats.totalAdvancesOutstanding > 0 ? 'var(--color-warning)' : 'var(--text-secondary)' }}>{INR_ROUND(employeeStats.totalAdvancesOutstanding)}</div></div>
+            <div className="dx-big">
+              <div>
+                <div className="dx-big-k">Total receivables</div>
+                <div className="dx-big-v">{INR_ROUND(customerStats.totalOutstanding)}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="dx-big-k" style={{ color: customerStats.overLimitCount > 0 ? 'var(--color-danger)' : undefined }}>Over limit</div>
+                <div className="dx-big-v" style={{ fontSize: 18, color: customerStats.overLimitCount > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>
+                  {customerStats.overLimitCount} <span style={{ fontSize: 12 }}>of {customers.length}</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Staff */}
+          <section className="dx-card" aria-label="Staff and payroll" style={{ padding: 14 }}>
+            <div className="dx-head">
+              <h2><Icon name="users" className="text-accent" /> Staff &amp; payroll</h2>
+              <button type="button" className="dx-link" onClick={() => navigate('/crm')}>Manage</button>
+            </div>
+            <div className="dx-trio">
+              <div><div className="k">Active</div><div className="v text-success">{employeeStats.activeEmployees}</div></div>
+              <div><div className="k">Salary due</div><div className="v">{INR_ROUND(employeeStats.totalSalaryDue)}</div></div>
+              <div><div className="k">Advances</div><div className="v text-accent">{INR_ROUND(employeeStats.totalAdvancesOutstanding)}</div></div>
             </div>
           </section>
         </div>
       </div>
 
-      {/* 4. Jump to */}
-      <nav className="quick-links" aria-label="Quick links">
-        <Link to="/operations/daily-entry" className="quick-link"><Icon name="edit" /> Daily entry &amp; meters</Link>
-        <Link to="/cash-count" className="quick-link"><Icon name="cash" /> Cash count audit</Link>
-        <Link to="/crm" className="quick-link"><Icon name="users" /> Customers &amp; staff</Link>
-        <Link to="/inventory" className="quick-link"><Icon name="fuel" /> Tanks &amp; top-ups</Link>
-        <Link to="/reports" className="quick-link"><Icon name="trending" /> Reports &amp; DSR</Link>
-      </nav>
+      {/* Footer status */}
+      <div className="dx-foot">
+        <span><span className="dx-live" />Saved on this device</span>
+        <button type="button" className="dx-link" onClick={() => navigate('/settings')}>
+          {lastBackupAt ? `Backup ${describeAge(lastBackupAt)}` : 'No backup yet'}
+        </button>
+      </div>
     </div>
   );
 }

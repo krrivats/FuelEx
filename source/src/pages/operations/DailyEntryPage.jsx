@@ -11,7 +11,7 @@ import {
   getExpensesByDailyEntryId, getMoneyMovementsByDailyEntryId,
   getUdhaarSalesByDailyEntryId, getCustomerOutstanding,
   getCashCountTotalByDate, getCashCountsByDate, dailyEntryNeedsReason,
-  getCustomerReceiptTotals,
+  getCustomerReceiptTotals, summarizeNozzleTests, TEST_TYPES, TEST_HIGH_LITRES,
 } from '../../data/repository.js';
 import { useReasonGate } from '../../components/ui/ReasonGate.jsx';
 import {
@@ -68,6 +68,9 @@ export default function DailyEntryPage() {
   const [groupCollectionsMap, setGroupCollectionsMap] = useState({});
   const [groupModal, setGroupModal] = useState({ open: false, index: -1, group: null });
   const [previousSetupNotice, setPreviousSetupNotice] = useState(false);
+
+  // Nozzle testing modal (tests are edited as a draft list, applied on Save)
+  const [testModal, setTestModal] = useState({ open: false, nozzleId: null, tests: [] });
 
   // Section 5: Udhaar / Credit Sales state
   const [udhaarSales, setUdhaarSales] = useState([]);
@@ -182,6 +185,7 @@ export default function DailyEntryPage() {
           openingReading: sr ? String(sr.openingReading) : '0',
           closingReading: sr ? String(sr.closingReading) : '',
           sellingPrice: priceObj ? priceObj.sellingPrice : (sr?.sellingPrice ?? null),
+          tests: Array.isArray(sr?.tests) ? sr.tests.map(t => ({ ...t })) : [],
         };
       });
       setReadings(mappedReadings);
@@ -293,6 +297,7 @@ export default function DailyEntryPage() {
           openingReading: prevClose !== undefined ? String(prevClose) : '0',
           closingReading: '',
           sellingPrice: priceObj ? priceObj.sellingPrice : null,
+          tests: [],
         };
       });
       setReadings(initReadings);
@@ -338,6 +343,44 @@ export default function DailyEntryPage() {
     }));
   };
 
+  // Nozzle testing handlers
+  const openTestModal = (nozzleId) => {
+    const r = readings.find(x => x.nozzleId === nozzleId);
+    const tests = (r?.tests || []).map(t => ({ ...t, litres: String(t.litres) }));
+    setTestModal({ open: true, nozzleId, tests: tests.length ? tests : [{ litres: '', type: 'returned', remarks: '' }] });
+  };
+  const closeTestModal = () => setTestModal({ open: false, nozzleId: null, tests: [] });
+  const updateTestRow = (idx, field, value) => setTestModal(prev => ({
+    ...prev, tests: prev.tests.map((t, i) => (i === idx ? { ...t, [field]: value } : t)),
+  }));
+  const addTestRow = (litres = '') => setTestModal(prev => {
+    // Quick-fill an empty last row instead of adding another one
+    const last = prev.tests[prev.tests.length - 1];
+    if (litres !== '' && last && String(last.litres).trim() === '') {
+      return { ...prev, tests: prev.tests.map((t, i) => (i === prev.tests.length - 1 ? { ...t, litres: String(litres) } : t)) };
+    }
+    return { ...prev, tests: [...prev.tests, { litres: String(litres), type: 'returned', remarks: last?.remarks || '' }] };
+  });
+  const removeTestRow = (idx) => setTestModal(prev => ({ ...prev, tests: prev.tests.filter((_, i) => i !== idx) }));
+  const applyTests = () => {
+    const bad = testModal.tests.find(t => String(t.litres).trim() !== '' && !(Number(t.litres) >= 0));
+    if (bad) { toast.error('Test litres must be a number.'); return; }
+    const clean = testModal.tests
+      .filter(t => Number(t.litres) > 0)
+      .map(t => ({ ...t, litres: Number(Number(t.litres).toFixed(2)) }));
+    const row = calculations.rowCalculations.find(x => x.nozzleId === testModal.nozzleId);
+    const total = summarizeNozzleTests(clean).total;
+    if (row && total > row.meterLitres + 0.001) {
+      toast.error(row.hasClosing
+        ? `Testing ${total} L is more than the meter litres (${row.meterLitres} L).`
+        : 'Enter the closing reading first.');
+      return;
+    }
+    if (total > TEST_HIGH_LITRES) toast.warning(`High testing on ${row?.nozzle?.name || 'this nozzle'}: ${total} L. Please check.`);
+    setReadings(prev => prev.map(r => (r.nozzleId === testModal.nozzleId ? { ...r, tests: clean } : r)));
+    closeTestModal();
+  };
+
   // Handle group collection change
   const handleGroupCollectionChange = (groupId, mode, value) => {
     setGroupCollectionsMap(prev => ({
@@ -357,6 +400,10 @@ export default function DailyEntryPage() {
     let totalLitres = 0;
     let totalSalesValue = 0;
     let hasMeterErrors = false;
+    let totalTestLitres = 0;
+    let totalTestReturned = 0;
+    let totalTestLoss = 0;
+    const highTestNozzles = [];
 
     // 1. Nozzle row derived values
     const rowCalculations = readings.map(r => {
@@ -378,7 +425,22 @@ export default function DailyEntryPage() {
         hasMeterErrors = true;
       }
 
-      const salesLitres = hasClosing && !isInvalid ? Number((closing - opening).toFixed(2)) : 0;
+      // Testing: meter litres − test litres = sold litres
+      const meterLitres = hasClosing && closing >= opening ? Number((closing - opening).toFixed(2)) : 0;
+      const test = summarizeNozzleTests(r.tests);
+      if (!isInvalid && test.total > 0 && test.total > meterLitres + 0.001) {
+        isInvalid = true;
+        errorMsg = hasClosing
+          ? `Testing ${test.total} L is more than the meter litres (${meterLitres} L).`
+          : 'Enter the closing reading before testing.';
+        hasMeterErrors = true;
+      }
+      if (test.total > TEST_HIGH_LITRES) highTestNozzles.push(nozzle?.name || 'Nozzle');
+      totalTestLitres += test.total;
+      totalTestReturned += test.returned;
+      totalTestLoss += test.sampleLoss;
+
+      const salesLitres = hasClosing && !isInvalid ? Number((meterLitres - test.total).toFixed(2)) : 0;
       const price = r.sellingPrice !== null && r.sellingPrice !== undefined ? Number(r.sellingPrice) : null;
       const salesValue = price !== null && !isInvalid ? Number((salesLitres * price).toFixed(2)) : 0;
 
@@ -402,6 +464,8 @@ export default function DailyEntryPage() {
         opening,
         closing: hasClosing ? closing : null,
         hasClosing,
+        meterLitres,
+        test,
         salesLitres,
         price,
         salesValue,
@@ -559,6 +623,10 @@ export default function DailyEntryPage() {
       speedLitres: Number(speedLitres.toFixed(2)),
       totalLitres: Number(totalLitres.toFixed(2)),
       totalSalesValue: Number(totalSalesValue.toFixed(2)),
+      totalTestLitres: Number(totalTestLitres.toFixed(2)),
+      totalTestReturned: Number(totalTestReturned.toFixed(2)),
+      totalTestLoss: Number(totalTestLoss.toFixed(2)),
+      highTestNozzles,
       collectionsByMode,
       totalCollections,
       totalUdhaar,
@@ -587,8 +655,11 @@ export default function DailyEntryPage() {
   const handleSave = async (targetStatus = 'draft') => {
     // Meter reading validations
     if (calculations.hasMeterErrors) {
-      toast.error('Cannot save: Some closing readings are lower than opening readings. Please fix highlighted errors.');
+      toast.error('Cannot save: Please fix the highlighted meter rows (closing reading or testing).');
       return;
+    }
+    if (calculations.highTestNozzles.length > 0) {
+      toast.warning(`High testing (over ${TEST_HIGH_LITRES} L) on: ${calculations.highTestNozzles.join(', ')}.`);
     }
 
     // Completion validations
@@ -666,6 +737,7 @@ export default function DailyEntryPage() {
           openingReading: r.opening,
           closingReading: r.closing ?? r.opening,
           sellingPrice: r.price,
+          tests: (r.tests || []).filter(t => Number(t.litres) > 0),
         })),
         collections: flatCollections,
         udhaarSales: udhaarSales.map(u => ({
@@ -1002,10 +1074,10 @@ export default function DailyEntryPage() {
       )}
 
       {/* SECTION A: DATE / DAY STATUS & HEADER */}
-      <div className="page-header" style={{ marginBottom: 16 }}>
+      <div className="page-header de-header" style={{ marginBottom: 16 }}>
         <div className="page-header-info">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, letterSpacing: '-0.03em' }}>Daily Operations</h1>
+            <h1 className="de-title" style={{ margin: 0, fontSize: 24, fontWeight: 700, letterSpacing: '-0.03em' }}>Daily Operations</h1>
             <StatusBadge status={status === 'completed' ? 'active' : 'inactive'} />
             {isDemo && (
               <span className="badge badge-warning" style={{ fontWeight: 700, fontSize: 11, }}>
@@ -1025,17 +1097,17 @@ export default function DailyEntryPage() {
                 onChange={e => handleDateChange(e.target.value)}
               />
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            <div className="de-hide-mobile" style={{ fontSize: 13, color: 'var(--text-muted)' }}>
               Shift record for {date}
             </div>
           </div>
         </div>
 
-        <div className="page-header-actions" style={{ gap: 12 }}>
+        <div className="page-header-actions de-actions" style={{ gap: 12 }}>
           <button
             id="btn-save-draft"
             type="button"
-            className="btn btn-secondary"
+            className="btn btn-secondary de-hide-mobile"
             onClick={() => handleSave('draft')}
             title="Save changes as Draft"
           >
@@ -1044,7 +1116,7 @@ export default function DailyEntryPage() {
           <button
             id="btn-save-complete"
             type="button"
-            className="btn btn-primary"
+            className="btn btn-primary de-hide-mobile"
             onClick={() => handleSave('completed')}
             title="Verify and Mark Shift Completed"
             style={{ fontWeight: 700 }}
@@ -1064,8 +1136,8 @@ export default function DailyEntryPage() {
 
       {/* OPERATIONS OVERVIEW */}
       <div className="section-block">
-        <div className="section-header">Operations Overview</div>
-        <div className="metric-grid">
+        <div className="section-header de-hide-mobile">Operations Overview</div>
+        <div className="metric-grid de-metrics">
           <div className="metric-card">
             <div className="metric-label">Meter Sales</div>
             <div className="metric-value">{INR(calculations.totalSalesValue)}</div>
@@ -1210,12 +1282,13 @@ export default function DailyEntryPage() {
                 <table className="table meter-table" style={{ margin: 0, fontSize: 13 }}>
                   <thead>
                     <tr>
-                      <th style={{ width: '18%' }}>Nozzle</th>
-                      <th style={{ width: '16%' }}>Product</th>
-                      <th style={{ width: '16%', textAlign: 'right' }}>Opening</th>
-                      <th style={{ width: '18%', textAlign: 'right' }}>Closing Reading</th>
-                      <th style={{ width: '14%', textAlign: 'right' }}>Sales Litres</th>
-                      <th style={{ width: '18%', textAlign: 'right' }}>Sales Value</th>
+                      <th style={{ width: '15%' }}>Nozzle</th>
+                      <th style={{ width: '13%' }}>Product</th>
+                      <th style={{ width: '15%', textAlign: 'right' }}>Opening</th>
+                      <th style={{ width: '17%', textAlign: 'right' }}>Closing Reading</th>
+                      <th style={{ width: '11%', textAlign: 'right' }}>Testing</th>
+                      <th style={{ width: '12%', textAlign: 'right' }}>Sold Litres</th>
+                      <th style={{ width: '17%', textAlign: 'right' }}>Sales Value</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1267,8 +1340,24 @@ export default function DailyEntryPage() {
                               </div>
                             )}
                           </td>
+                          <td className="c-test" style={{ textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className={`test-chip ${row.test.total > 0 ? 'has' : ''} ${row.test.total > TEST_HIGH_LITRES ? 'high' : ''}`}
+                              onClick={() => openTestModal(row.nozzleId)}
+                              aria-label={`Testing for ${row.nozzle?.name || 'nozzle'}`}
+                            >
+                              <Icon name="flask" className="icon-sm" />
+                              {row.test.total > 0 ? FMT_QTY(row.test.total) : 'Test'}
+                            </button>
+                          </td>
                           <td className="c-lit" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>
                             {FMT_QTY(row.salesLitres)}
+                            {row.test.total > 0 && (
+                              <div style={{ fontSize: 10.5, fontWeight: 500, color: 'var(--text-muted)' }}>
+                                Meter {FMT_QTY(row.meterLitres)}
+                              </div>
+                            )}
                           </td>
                           <td className="c-val" style={{ textAlign: 'right' }}>
                             <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -1285,7 +1374,7 @@ export default function DailyEntryPage() {
                   {/* SECTION 7: MACHINE-WISE TOTAL ROW */}
                   <tfoot>
                     <tr style={{ background: 'var(--bg-surface)', borderTop: '2px solid var(--border-default)', fontWeight: 700 }}>
-                      <td colSpan={4} style={{ textAlign: 'right', fontSize: 12.5, }}>
+                      <td colSpan={5} style={{ textAlign: 'right', fontSize: 12.5, }}>
                         {mach.name} total
                       </td>
                       <td style={{ textAlign: 'right', color: 'var(--color-primary)', fontSize: 13.5 }}>
@@ -1331,6 +1420,17 @@ export default function DailyEntryPage() {
               {FMT_QTY(calculations.speedLitres)}
             </div>
           </div>
+          {calculations.totalTestLitres > 0 && (
+            <div style={{ borderLeft: '1px solid var(--border-default)', paddingLeft: 12 }}>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', }}>Testing (not sold)</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-accent)', marginTop: 2 }}>
+                {FMT_QTY(calculations.totalTestLitres)}
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                Returned {FMT_QTY(calculations.totalTestReturned)} · Sample/Loss {FMT_QTY(calculations.totalTestLoss)}
+              </div>
+            </div>
+          )}
           <div style={{ borderLeft: '1px solid var(--border-default)', paddingLeft: 12 }}>
             <div style={{ fontSize: 11.5, color: 'var(--text-muted)', }}>Total Fuel Volume</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-primary)', marginTop: 2 }}>
@@ -2118,9 +2218,17 @@ export default function DailyEntryPage() {
                   <Icon name="fuel" /> Fuel sales
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 5 }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Fuel Litres:</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Fuel Litres (sold):</span>
                   <strong style={{ color: 'var(--text-primary)' }}>{FMT_QTY(calculations.totalLitres)}</strong>
                 </div>
+                {calculations.totalTestLitres > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 5 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Testing (not sold):</span>
+                    <strong style={{ color: 'var(--color-accent)' }} title={`Returned ${calculations.totalTestReturned} L · Sample/Loss ${calculations.totalTestLoss} L`}>
+                      {FMT_QTY(calculations.totalTestLitres)}
+                    </strong>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 5 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Fuel Sales:</span>
                   <strong style={{ color: 'var(--text-primary)' }}>{INR(calculations.totalSalesValue)}</strong>
@@ -2291,8 +2399,8 @@ export default function DailyEntryPage() {
 
       {/* STICKY BOTTOM SAVE ACTION BAR */}
       <div className="daily-entry-sticky-bar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 13 }}>
+        <div className="de-sticky-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="de-hide-mobile" style={{ fontSize: 13 }}>
             Date: <strong>{date}</strong>
           </div>
           <div style={{ fontSize: 13 }}>
@@ -2726,6 +2834,79 @@ export default function DailyEntryPage() {
           </div>
         )}
       </Modal>
+
+      {/* MODAL: NOZZLE TESTING */}
+      {testModal.open && (() => {
+        const row = calculations.rowCalculations.find(x => x.nozzleId === testModal.nozzleId);
+        const draft = summarizeNozzleTests(testModal.tests.map(t => ({ ...t, litres: Number(t.litres) || 0 })));
+        const over = draft.total > (row?.meterLitres || 0) + 0.001;
+        return (
+          <Modal
+            open
+            onClose={closeTestModal}
+            title={`Testing · ${row?.nozzle?.name || 'Nozzle'} (${row?.product?.name || 'Fuel'})`}
+            footer={
+              <>
+                <button className="btn btn-secondary" onClick={closeTestModal}>Cancel</button>
+                <button className="btn btn-primary" onClick={applyTests}>Done</button>
+              </>
+            }
+          >
+            <div className="test-meter-strip">
+              <span>Meter <strong>{FMT_QTY(row?.meterLitres)}</strong></span>
+              <span>Testing <strong className={over ? 'text-danger' : 'text-accent'}>{FMT_QTY(draft.total)}</strong></span>
+              <span>Sold <strong className="text-success">{FMT_QTY(Math.max(0, (row?.meterLitres || 0) - draft.total))}</strong></span>
+            </div>
+            {!row?.hasClosing && (
+              <div className="form-error" style={{ marginBottom: 8 }}>Enter the closing reading for this nozzle first.</div>
+            )}
+
+            <div className="test-quick" role="group" aria-label="Quick add litres">
+              {[5, 10, 20, 50, 100].map(l => (
+                <button key={l} type="button" className="btn btn-secondary btn-sm" onClick={() => addTestRow(l)}>+{l} L</button>
+              ))}
+            </div>
+
+            <div className="test-rows">
+              {testModal.tests.map((t, idx) => (
+                <div className="test-row" key={t.id || `new-${idx}`}>
+                  <input
+                    type="number" inputMode="decimal" step="0.01" min="0"
+                    className="input-field test-litres" placeholder="Litres"
+                    value={t.litres}
+                    onChange={e => updateTestRow(idx, 'litres', e.target.value)}
+                    aria-label="Test litres"
+                  />
+                  <div className="seg test-type" role="radiogroup" aria-label="Fuel after test">
+                    {Object.entries(TEST_TYPES).map(([k, label]) => (
+                      <button key={k} type="button" role="radio" aria-checked={t.type === k}
+                        className={`seg-btn ${t.type === k ? 'on' : ''}`} title={label}
+                        onClick={() => updateTestRow(idx, 'type', k)}>
+                        {k === 'returned' ? 'Returned' : 'Sample/Loss'}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" className="btn btn-ghost btn-sm btn-icon" onClick={() => removeTestRow(idx)} aria-label="Remove test">
+                    <Icon name="trash" className="icon-sm" />
+                  </button>
+                  <input
+                    type="text" className="input-field test-remark" placeholder="Remark (who tested, officer, reason…)"
+                    value={t.remarks || ''}
+                    onChange={e => updateTestRow(idx, 'remarks', e.target.value)}
+                    aria-label="Test remark"
+                  />
+                </div>
+              ))}
+            </div>
+            <button type="button" className="btn btn-link" style={{ marginTop: 8 }} onClick={() => addTestRow('')}>
+              <Icon name="plus" className="icon-sm" /> Add another test
+            </button>
+            <p className="form-hint" style={{ marginTop: 8 }}>
+              Returned = poured back into the tank (stock unchanged). Sample/Loss = kept as sample or lost (stock goes down). Neither is counted as a sale.
+            </p>
+          </Modal>
+        );
+      })()}
 
       {/* MODAL: ADD / EDIT UDHAAR / CREDIT SALE */}
       <Modal

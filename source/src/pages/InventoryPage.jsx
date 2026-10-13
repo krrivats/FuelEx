@@ -736,7 +736,15 @@ export default function InventoryPage() {
 
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
                       Formula: Opening ({FMT_QTY(tank.openingStock)}) + Top-Ups ({FMT_QTY(tank.receipts)}) - Sales ({FMT_QTY(tank.sales)})
+                      {tank.testLossToday > 0 && <> - Sample/Loss ({FMT_QTY(tank.testLossToday)})</>}
                     </div>
+                    {(tank.testReturnedToday > 0 || tank.testLossToday > 0) && (
+                      <div className="test-stock-line">
+                        <Icon name="flask" className="icon-sm" />
+                        <span>Testing today: returned to tank <strong>{FMT_QTY(tank.testReturnedToday)}</strong></span>
+                        <span>· sample/loss <strong className="text-warning">{FMT_QTY(tank.testLossToday)}</strong></span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Operational Daily Movement Cards (Section 14) */}

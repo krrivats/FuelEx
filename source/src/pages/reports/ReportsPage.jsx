@@ -260,6 +260,36 @@ export default function ReportsPage() {
                 </div>
               </div>
 
+              {dsrData.testing.total > 0 && (
+                <div className="section-block">
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+                    <span><Icon name="flask" /> Nozzle testing (not sold)</span>
+                  </div>
+                  <div className="table-wrapper">
+                    <table className="table" style={{ margin: 0, fontSize: 13 }}>
+                      <thead>
+                        <tr><th>Nozzle</th><th style={{ textAlign: 'right' }}>Returned</th><th style={{ textAlign: 'right' }}>Sample/Loss</th><th>Remarks</th></tr>
+                      </thead>
+                      <tbody>
+                        {dsrData.testing.rows.map(r => (
+                          <tr key={r.id}>
+                            <td>{r.nozzleName || r.nozzleId}{r.productName && <span className="text-muted"> ({r.productName})</span>}</td>
+                            <td style={{ textAlign: 'right' }}>{FMT_QTY(r.testReturnedLitres)}</td>
+                            <td style={{ textAlign: 'right' }}>{FMT_QTY(r.testLossLitres)}</td>
+                            <td className="text-muted">{(r.tests || []).map(t => t.remarks).filter(Boolean).join('; ') || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+
+                    </table>
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600 }}>
+                    Total {FMT_QTY(dsrData.testing.total)} · Returned {FMT_QTY(dsrData.testing.returned)} ·{' '}
+                    <span style={{ color: 'var(--color-warning)' }}>Sample/Loss {FMT_QTY(dsrData.testing.sampleLoss)}</span>
+                  </div>
+                </div>
+              )}
+
               {/* SECTION 3 & 4: COLLECTIONS & RECONCILIATION */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 10 }}>
                 {/* Collections Breakdown */}
@@ -607,7 +637,7 @@ export default function ReportsPage() {
           <div className="section-block">
             <h3 style={{ margin: 0, fontSize: 16 }}>Underground Tank Fuel Stock &amp; Capacity Audit</h3>
             <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2 }}>
-              Formula: Closing Book Stock = Opening Stock + Fuel Top-Ups - Meter Sales. Physical Dip Variation = Dip - Book Stock.
+              Formula: Closing Book Stock = Opening Stock + Fuel Top-Ups - Meter Sales - Testing Sample/Loss (returned test fuel stays in the tank). Physical Dip Variation = Dip - Book Stock.
             </div>
           </div>
 
