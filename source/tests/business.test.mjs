@@ -364,3 +364,71 @@ test('customer payments: cash adds to cash in hand + DSR, UPI goes to bank, dues
   R.deleteCustomerPayment(p.id);
   near(R.getCustomerReceiptTotals(D1).total, 250, 'delete removes it');
 });
+
+test('nozzle testing: sold = meter - test; returned stays in tank; sample/loss leaves it; cash not short', () => {
+  fresh();
+  const p = price('prod-1', D1);
+  const before = R.getFuelStockSummary('prod-1', D1).openingStock;
+  const res = save({
+    date: D1, status: 'draft', collectionGroups: [group],
+    meterReadings: [{
+      nozzleId: 'noz-5', machineId: 'mach-2', productId: 'prod-1', openingReading: 1000, closingReading: 1565, sellingPrice: p,
+      tests: [
+        { litres: 5, type: 'returned', remarks: 'Daily check' },
+        { litres: 50, type: 'sample_loss', remarks: 'Officer sample' },
+        { litres: 10, type: 'sample_loss', remarks: 'Spill' },
+        { litres: 0, type: 'returned' }, // empty rows are dropped
+      ],
+    }],
+    collections: [{ collectionGroupId: 'g1', paymentMode: 'Cash', amount: 500 * p }],
+  });
+  const r = res.meterReadings[0];
+  near(r.meterLitres, 565, 'meter litres');
+  near(r.testLitres, 65, 'test litres');
+  near(r.testReturnedLitres, 5, 'returned');
+  near(r.testLossLitres, 60, 'sample/loss');
+  near(r.salesLitres, 500, 'sold litres');
+  assert.equal(r.tests.length, 3, 'zero-litre test dropped');
+  near(res.dailyEntry.totalFuelLitres, 500, 'day litres are sold litres');
+  near(res.dailyEntry.totalTestLitres, 65, 'day test litres');
+  near(res.dailyEntry.totalSalesValue, Number((500 * p).toFixed(2)), 'value only on sold litres');
+  assert.equal(res.dailyEntry.reconciliationStatus, 'matched', 'cash for sold litres matches');
+
+  const st = R.getFuelStockSummary('prod-1', D1);
+  near(st.testLossToday, 60, 'stock shows sample/loss');
+  near(st.testReturnedToday, 5, 'stock shows returned');
+  near(st.closingBookStock, before - 500 - 60, 'stock down by sold + sample/loss only');
+  near(R.calculateOpeningStockForDate('prod-1', D2).openingStock, before - 560, 'next day opening rolls forward');
+
+  const dsr = R.getDSRData(D1);
+  near(dsr.testing.total, 65); near(dsr.testing.returned, 5); near(dsr.testing.sampleLoss, 60);
+});
+
+test('nozzle testing: more test litres than the meter is rejected; old readings without tests still work', () => {
+  fresh();
+  assert.throws(() => save({
+    date: D1, collectionGroups: [group],
+    meterReadings: [{ nozzleId: 'noz-5', machineId: 'mach-2', productId: 'prod-1', openingReading: 100, closingReading: 110, sellingPrice: 100, tests: [{ litres: 20 }] }],
+  }), (e) => e.code === 'TEST_EXCEEDS_METER');
+  const res = save({
+    date: D1, collectionGroups: [group],
+    meterReadings: [{ nozzleId: 'noz-5', machineId: 'mach-2', productId: 'prod-1', openingReading: 100, closingReading: 110, sellingPrice: 100 }],
+  });
+  near(res.meterReadings[0].salesLitres, 10); near(res.meterReadings[0].testLitres, 0);
+  // a legacy reading (saved before testing existed) has no test fields
+  assert.equal(R.tankOutLitres({ salesLitres: 42 }), 42);
+});
+
+test('nozzle testing is kept in the backup file', () => {
+  fresh();
+  save({
+    date: D1, collectionGroups: [group],
+    meterReadings: [{ nozzleId: 'noz-5', machineId: 'mach-2', productId: 'prod-1', openingReading: 0, closingReading: 20, sellingPrice: 100, tests: [{ litres: 5, remarks: 'by Ramesh' }] }],
+  });
+  const json = R.exportFuelExDataJson();
+  fresh();
+  R.importFuelExDataJson(json);
+  const back = R.getAllMeterReadings().find(r => r.nozzleId === 'noz-5');
+  near(back.testLitres, 5);
+  assert.equal(back.tests[0].remarks, 'by Ramesh');
+});

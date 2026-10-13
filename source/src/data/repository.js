@@ -1275,6 +1275,48 @@ export function addAuditLog({ date = '', module = '', action = '', reason = '', 
   return record;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NOZZLE TESTING
+// Test fuel is drawn through the meter but is not a sale.
+//   returned    → poured back into the tank (stock unchanged)
+//   sample_loss → kept as a sample or lost (stock goes down, no money)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const TEST_TYPES = {
+  returned: 'Returned to tank',
+  sample_loss: 'Sample / Loss',
+};
+export const TEST_HIGH_LITRES = 100; // warn (do not block) above this per nozzle
+
+export function normalizeNozzleTests(tests = []) {
+  return (Array.isArray(tests) ? tests : [])
+    .map(t => ({
+      id: t.id || generateId('tst'),
+      litres: Number(Number(t.litres || 0).toFixed(2)),
+      type: t.type === 'sample_loss' ? 'sample_loss' : 'returned',
+      remarks: t.remarks ? String(t.remarks).trim() : '',
+    }))
+    .filter(t => t.litres > 0);
+}
+
+export function summarizeNozzleTests(tests = []) {
+  let returned = 0;
+  let sampleLoss = 0;
+  for (const t of tests || []) {
+    const l = Number(t.litres) || 0;
+    if (l <= 0) continue;
+    if (t.type === 'sample_loss') sampleLoss += l; else returned += l;
+  }
+  returned = Number(returned.toFixed(2));
+  sampleLoss = Number(sampleLoss.toFixed(2));
+  return { total: Number((returned + sampleLoss).toFixed(2)), returned, sampleLoss };
+}
+
+/** Litres that leave the tank for a stored reading: sold + sample/loss (returned test fuel stays). */
+export function tankOutLitres(reading) {
+  return (Number(reading?.salesLitres) || 0) + (Number(reading?.testLossLitres) || 0);
+}
+
 export function saveDailyEntry({
   id,
   date,
@@ -1347,17 +1389,32 @@ export function saveDailyEntry({
   }));
 
   // 2. Process Meter Readings & calculate fuel totals
+  // Sold litres = meter litres − test litres (test fuel is not a sale)
   let totalFuelLitres = 0;
   let totalSalesValue = 0;
+  let totalTestLitres = 0;
+  let totalTestReturnedLitres = 0;
+  let totalTestLossLitres = 0;
   const processedReadings = meterReadings.map(r => {
     const opening = Number(r.openingReading) || 0;
     const closing = Number(r.closingReading) || 0;
-    const salesLitres = Math.max(0, Number((closing - opening).toFixed(2)));
+    const meterLitres = Math.max(0, Number((closing - opening).toFixed(2)));
+    const tests = normalizeNozzleTests(r.tests);
+    const t = summarizeNozzleTests(tests);
+    if (t.total > meterLitres + 0.001) {
+      const err = new Error(`${r.nozzleName || 'Nozzle'}: testing (${t.total} L) is more than the meter litres (${meterLitres} L).`);
+      err.code = 'TEST_EXCEEDS_METER';
+      throw err;
+    }
+    const salesLitres = Number((meterLitres - t.total).toFixed(2));
     const price = r.sellingPrice !== undefined && r.sellingPrice !== null ? Number(r.sellingPrice) : null;
     const salesValue = price !== null ? Number((salesLitres * price).toFixed(2)) : 0;
 
     totalFuelLitres += salesLitres;
     totalSalesValue += salesValue;
+    totalTestLitres += t.total;
+    totalTestReturnedLitres += t.returned;
+    totalTestLossLitres += t.sampleLoss;
 
     return {
       id: r.id || generateId('read'),
@@ -1371,6 +1428,11 @@ export function saveDailyEntry({
       machineName: r.machineName || '',
       openingReading: opening,
       closingReading: closing,
+      meterLitres,
+      tests,
+      testLitres: t.total,
+      testReturnedLitres: t.returned,
+      testLossLitres: t.sampleLoss,
       salesLitres,
       sellingPrice: price,
       salesValue,
@@ -1381,6 +1443,9 @@ export function saveDailyEntry({
 
   totalFuelLitres = Number(totalFuelLitres.toFixed(2));
   totalSalesValue = Number(totalSalesValue.toFixed(2));
+  totalTestLitres = Number(totalTestLitres.toFixed(2));
+  totalTestReturnedLitres = Number(totalTestReturnedLitres.toFixed(2));
+  totalTestLossLitres = Number(totalTestLossLitres.toFixed(2));
 
   // 3. Process Collections (linked to collection groups - Cash, UPI, Card, Paytm, Other ONLY. Udhaar is NOT a collection mode)
   let totalCollections = 0;
@@ -1550,6 +1615,9 @@ export function saveDailyEntry({
     isDemo: Boolean(isDemo),
     totalFuelLitres,
     totalSalesValue,
+    totalTestLitres,
+    totalTestReturnedLitres,
+    totalTestLossLitres,
     totalCollections,
     totalUdhaar,
     reconciledSales,
@@ -2876,7 +2944,7 @@ export function calculateOpeningStockForDate(prodId, targetDate, customData = nu
 
     const daySales = allMeterReadings
       .filter(m => m.productId === prodId && m.date === curDate)
-      .reduce((sum, m) => sum + (Number(m.salesLitres) || 0), 0);
+      .reduce((sum, m) => sum + tankOutLitres(m), 0);
 
     currentStock = Number((dayOpening + dayReceipts - daySales).toFixed(2));
   }
@@ -2937,8 +3005,13 @@ export function getFuelStockSummary(productIdOrDate, optionalDate) {
       .reduce((sum, r) => sum + (Number(r.salesLitres) || 0), 0).toFixed(2));
     const salesTodayKL = Number((salesToday / 1000).toFixed(2));
 
-    // Important Inventory Formula: Closing = Opening + TopUps - Sales
-    const closingBookStock = Number((openingStock + receiptsToday - salesToday).toFixed(2));
+    // Nozzle testing today: returned fuel stays in the tank, sample/loss leaves it
+    const testsToday = allMeterReadings.filter(r => r.productId === prod.id && r.date === date);
+    const testReturnedToday = Number(testsToday.reduce((s, r) => s + (Number(r.testReturnedLitres) || 0), 0).toFixed(2));
+    const testLossToday = Number(testsToday.reduce((s, r) => s + (Number(r.testLossLitres) || 0), 0).toFixed(2));
+
+    // Important Inventory Formula: Closing = Opening + TopUps - Sales - Sample/Loss
+    const closingBookStock = Number((openingStock + receiptsToday - salesToday - testLossToday).toFixed(2));
     const closingBookStockKL = Number((closingBookStock / 1000).toFixed(2));
 
     // Total lifetime receipts & sales for historical statistics
@@ -2984,6 +3057,8 @@ export function getFuelStockSummary(productIdOrDate, optionalDate) {
       sales: salesToday,
       receiptsToday,
       salesToday,
+      testReturnedToday,
+      testLossToday,
       topUpsTodayKL,
       salesTodayKL,
       totalReceiptsAllTime: totalReceipts,
@@ -3460,12 +3535,21 @@ export function getDSRData(date = localDate()) {
   // Tank fuel stock summary (date-sensitive)
   const fuelStockSummaries = getFuelStockSummary(date);
 
+  // Nozzle testing (not part of sales)
+  const testing = {
+    total: Number(meterReadings.reduce((s, r) => s + (Number(r.testLitres) || 0), 0).toFixed(2)),
+    returned: Number(meterReadings.reduce((s, r) => s + (Number(r.testReturnedLitres) || 0), 0).toFixed(2)),
+    sampleLoss: Number(meterReadings.reduce((s, r) => s + (Number(r.testLossLitres) || 0), 0).toFixed(2)),
+    rows: meterReadings.filter(r => (Number(r.testLitres) || 0) > 0),
+  };
+
   return {
     date,
     entry,
     entryStatus: entry?.status || 'draft',
     fuelStock: fuelStockSummaries,
     meterReadings,
+    testing,
     machineSales: machineBreakdown,
     collectionGroups,
     groupReconciliations,

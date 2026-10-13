@@ -207,6 +207,13 @@ export default function AppShell({ children }) {
             <button type="button" className="menu-trigger desktop-only" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={collapsed}>
               <Icon name="panel" />
             </button>
+            <button type="button" className="topbar-brand" onClick={() => handleNav('/dashboard')} aria-label="FuelEx dashboard">
+              <Icon name="fuel" />
+              <span style={{ minWidth: 0 }}>
+                <span className="topbar-brand-name">FuelEx</span>
+                <span className="topbar-brand-sub">{getPageTitle()}</span>
+              </span>
+            </button>
             <div className="breadcrumb">
               <span className="breadcrumb-muted">FuelEx</span>
               <Icon name="chevron" className="icon-sm" style={{ color: 'var(--border-strong)' }} />
