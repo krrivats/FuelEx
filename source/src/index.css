@@ -1128,7 +1128,7 @@ button .icon, .btn .icon, .chip .icon, .nav-item .icon, .kpi-label .icon, .badge
 .test-row .test-type .seg-btn { flex: 1; height: 30px; }
 .test-stock-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; font-size: 11.5px; color: var(--text-secondary); }
 .test-stock-line .icon { color: var(--color-accent); }
-@media (max-width: 768px) { .test-row .test-type .seg-btn { height: 40px; } .test-chip { height: 34px; } }
+@media (max-width: 768px) { .test-row .test-type .seg-btn { height: 38px; } }
 
 /* ---------- Daily Entry: compact on phones ---------- */
 .de-metrics .metric-value { font-family: var(--font-mono); letter-spacing: -0.03em; }
@@ -1151,3 +1151,99 @@ button .icon, .btn .icon, .chip .icon, .nav-item .icon, .kpi-label .icon, .badge
 .test-hint { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-md); background: var(--color-accent-subtle); color: var(--text-primary); font-size: 12.5px; line-height: 1.6; }
 .test-hint > .icon { color: var(--color-accent); margin-top: 3px; }
 .test-hint .test-chip { vertical-align: middle; margin: 0 2px; }
+
+/* ============================================================
+   v5.1 · COMPACT PHONE LAYER — less scrolling, no sideways scroll
+   Phones only; desktop is unchanged. Inputs keep 16px text (stops iPhone zoom).
+   ============================================================ */
+@media (max-width: 768px) {
+  :root { --control-h-touch: 38px; }
+  .page-container { padding: 8px 10px 12px; padding-left: calc(10px + var(--safe-left)); padding-right: calc(10px + var(--safe-right)); }
+  .breadcrumbs { display: none; }
+  .page-header { margin-bottom: 8px !important; align-items: center; }
+  .page-header-info h1, .page-title { font-size: 17px !important; margin-top: 0 !important; }
+  .page-header-actions { gap: 6px !important; }
+  .page-header-actions .btn { flex: 1 1 0; min-width: 0; }
+  .btn-lg { height: 40px; }
+  .section-block { margin-bottom: 8px; }
+  .section-header { font-size: 12px; margin-bottom: 6px; }
+  .toolbar { gap: 6px; margin-bottom: 8px; }
+  .toolbar > * { flex: 1 1 120px; }
+  .form-group { margin-bottom: 8px; }
+  .modal-body { padding: 10px 12px; }
+  .modal-header { padding: 10px 12px; }
+
+  /* Small stat-card grids: 2 per row instead of 1 */
+  .page-container div[style*="minmax(min(100%, 130px)"],
+  .page-container div[style*="minmax(min(100%, 150px)"],
+  .page-container div[style*="minmax(150px, 1fr)"],
+  .page-container div[style*="minmax(min(100%, 160px)"],
+  .page-container div[style*="minmax(min(100%, 170px)"],
+  .page-container div[style*="minmax(min(100%, 180px)"],
+  .page-container div[style*="minmax(min(100%, 200px)"],
+  .page-container div[style*="minmax(min(100%, 210px)"],
+  .page-container div[style*="minmax(min(100%, 220px)"] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 6px !important; }
+  .page-container div[style*="minmax(min(100%"] > .section-block,
+  .page-container div[style*="minmax(min(100%"] > .metric-card { padding: 7px 9px !important; margin: 0; min-width: 0; }
+  .page-container div[style*="minmax(min(100%"] > .section-block > div[style*="font-size: 20px"] { font-size: 16px !important; }
+
+  /* Table rows as cards: two fields per line, label above value */
+  .table:not(.meter-table) tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding: 7px 10px; margin-bottom: 6px; }
+  .table:not(.meter-table) td { display: block; padding: 0 !important; text-align: left !important; min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; }
+  .table:not(.meter-table) td::before { display: block; max-width: none; font-size: 10px; line-height: 1.3; margin-bottom: 1px; }
+  .table:not(.meter-table) td:first-child { grid-column: 1 / -1; padding-bottom: 4px !important; margin-bottom: 0; }
+  .table:not(.meter-table) td:not([data-label]), .table:not(.meter-table) td[colspan],
+  .table:not(.meter-table) td[data-label="Actions"], .table:not(.meter-table) td[data-label="Action"] { grid-column: 1 / -1; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+  .table:not(.meter-table) td[data-label="Actions"]::before, .table:not(.meter-table) td[data-label="Action"]::before { content: none; }
+  .table:not(.meter-table) td .btn-sm { min-height: 30px; height: 30px; }
+  .table:not(.meter-table) tfoot tr { background: var(--bg-surface-elevated); }
+
+  /* Meter rows: name | closing | ₹ on line 1, open | Test | litres on line 2 */
+  .meter-table tbody tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); grid-template-areas: "noz close val" "open test lit"; gap: 2px 8px; padding: 6px 2px; align-items: center; }
+  .meter-table .c-prod { display: none; }
+  .meter-table .c-close::before { content: none; }
+  .meter-table .c-close .input-field { min-height: 36px; height: 36px; }
+  .meter-table .c-test { grid-area: test; text-align: center !important; }
+  .meter-table .c-noz { align-self: center; }
+  .meter-table .c-open, .meter-table .c-lit { align-self: center; font-size: 12px; }
+  .meter-table .c-val > div:first-child { font-size: 12.5px; }
+  .meter-table .c-lit > div { display: none; }
+  .meter-table .c-close .input-field + div { font-size: 10.5px !important; }
+  .test-chip { height: 22px; padding: 0 7px; font-size: 10.5px; gap: 3px; }
+  .test-chip .icon { width: 11px; height: 11px; }
+  .test-hint { padding: 6px 8px; font-size: 11.5px; line-height: 1.45; margin-top: 6px; }
+  .test-hint .test-chip { height: 18px; }
+
+  /* Daily entry accordions and summary */
+  .daily-accordion-header { padding: 8px 10px; }
+  .daily-accordion-body { padding: 8px; }
+  .daily-accordion-card > div[style*="padding: 18px"], .daily-accordion-card > div[style*="padding: 12px"] { padding: 8px !important; }
+  .workflow-nav { margin-bottom: 6px; }
+  .workflow-step { padding: 5px 8px; font-size: 11.5px; }
+
+  /* Dashboard */
+  .dx { gap: 8px; }
+  .dx-card { padding: 10px; }
+  .dx-cta { height: 44px; font-size: 14px; }
+  .dx-kpi-value { font-size: 20px; }
+  .dx-banner { padding: 8px 10px 8px 14px; }
+  .dx-banner-title { font-size: 14.5px; }
+  .dx-alert { padding: 8px 10px; }
+  .dx-alert-title { font-size: 13px; }
+  .dx-alert-msg { font-size: 12px; }
+  .dx-head { margin-bottom: 6px; }
+  .dx-head h2 { font-size: 14.5px; }
+  .dx-tanks { gap: 10px; }
+  .dx-cols, .dx-stack { gap: 8px; }
+}
+@media (max-width: 768px) {
+  /* Rows with 7+ fields: three per line */
+  .table:not(.meter-table) tr:has(> td:nth-child(7)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .de-header .badge-warning { display: none; }
+}
+@media (max-width: 768px) {
+  .daily-entry-sticky-bar { padding: 5px 8px; gap: 4px 8px; }
+  .daily-entry-sticky-bar .btn { min-height: 36px; height: 36px; padding: 0 10px; font-size: 12.5px; flex: 1 1 0; }
+  .daily-entry-sticky-bar > div:last-child { display: flex; gap: 6px; width: 100%; }
+  .de-sticky-info > div { font-size: 11.5px !important; }
+}
